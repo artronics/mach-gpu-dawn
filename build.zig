@@ -1616,19 +1616,22 @@ fn scanSources(
     excluding_contains: []const []const u8,
 ) !void {
     const abs_dir = try std.fs.path.join(b.allocator, &.{ sdkPath("/"), rel_dir });
-    var dir = std.fs.openIterableDirAbsolute(abs_dir, .{}) catch |err| {
+    var dir = std.fs.openDirAbsolute(abs_dir, .{ .access_sub_paths = true, .no_follow = true }) catch |err| {
         std.log.err("mach: error: failed to open: {s}", .{abs_dir});
         return err;
     };
     defer dir.close();
-    var dir_it = dir.iterate();
-    while (try dir_it.next()) |entry| {
+    var walker = try dir.walk(b.allocator);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
-        var abs_path = try std.fs.path.join(b.allocator, &.{ abs_dir, entry.name });
+        var abs_path = try std.fs.path.join(b.allocator, &.{ abs_dir, entry.path });
         abs_path = try std.fs.realpathAlloc(b.allocator, abs_path);
 
+        const basename = std.fs.path.basename(entry.path);
         const allowed_extension = blk: {
-            const ours = std.fs.path.extension(entry.name);
+            const ours = std.fs.path.extension(basename);
             for (extensions) |ext| {
                 if (std.mem.eql(u8, ours, ext)) break :blk true;
             }
@@ -1638,7 +1641,7 @@ fn scanSources(
 
         const excluded = blk: {
             for (excluding) |excluded| {
-                if (std.mem.eql(u8, entry.name, excluded)) break :blk true;
+                if (std.mem.eql(u8, entry.path, excluded)) break :blk true;
             }
             break :blk false;
         };
@@ -1646,7 +1649,7 @@ fn scanSources(
 
         const excluded_contains = blk: {
             for (excluding_contains) |contains| {
-                if (std.mem.containsAtLeast(u8, entry.name, 1, contains)) break :blk true;
+                if (std.mem.containsAtLeast(u8, entry.path, 1, contains)) break :blk true;
             }
             break :blk false;
         };
